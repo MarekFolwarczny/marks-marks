@@ -1,0 +1,13 @@
+tests/output/
+previous-version/
+dist/
+*.exe
+*.zip
+MarksMarks.xml
+*.tmp
+*.log
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini

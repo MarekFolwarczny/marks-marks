@@ -1,0 +1,26 @@
+# Mark´s Marks
+
+> A free, open-source, offline Windows notes app for any kind of text notes,
+> clipboard screenshots, local video attachments, and quick desktop access.
+
+Mark´s Marks 1.0.0 is a standalone Windows executable licensed under MIT.
+It requires .NET Framework 4.5 or newer; 4.8 is recommended. English is the
+default interface language, with optional Czech.
+
+It is suitable for quick ideas, task lists, meeting notes, reference material,
+and personal or work notes while using other Windows programs. Images and videos
+can be saved alongside notes to keep text and visual context together.
+Open or hide the editor with Ctrl+Alt+N, its floating transparent logo, or the
+system tray icon. Notes are plain UTF-8 files in user-selected local folders.
+
+Paste images with Ctrl+V; add supported local videos. Attachment viewers provide
+zoom, navigation, renaming, and confirmed deletion. Notes and attachments transfer
+together through ZIP export/import. Transfer creates independent copies, without live
+synchronization. Video playback depends on Windows codecs.
+
+## Official resources
+
+- [Repository and user guide](https://github.com/MarekFolwarczny/marks-marks): features, requirements, storage, and usage.
+- [Download version 1.0.0](https://github.com/MarekFolwarczny/marks-marks/releases/tag/v1.0.0): Windows executable and ZIP.
+- [Developer guide](https://github.com/MarekFolwarczny/marks-marks/blob/main/DEVELOPERS.md): architecture, build, tests, and practical limits.
+- [MIT license](https://github.com/MarekFolwarczny/marks-marks/blob/main/LICENSE): personal and commercial use, modification, and redistribution.
