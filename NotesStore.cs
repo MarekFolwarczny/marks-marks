@@ -51,7 +51,7 @@ namespace ProjektovePoznamky
         public string Kind;
         /// <summary>Stable folder of the owning project.</summary>
         public string Folder;
-        /// <summary>snimky or videa; empty for project deletion.</summary>
+        /// <summary>images or videos; empty for project deletion.</summary>
         public string Media;
         /// <summary>Original attachment filename without its parent path.</summary>
         public string Source;
@@ -114,16 +114,28 @@ namespace ProjektovePoznamky
         /// <summary>Absolute storage root derived from the index path.</summary>
         public string DirectoryPath { get { return Path.GetDirectoryName(path); } }
         /// <summary>A primary index or backup exists; leftover folders alone do not qualify.</summary>
-        public bool HasData { get { return File.Exists(path) || File.Exists(path + ".bak"); } }
+        public bool HasData { get { string index = IndexToRead; return File.Exists(index) || File.Exists(index + ".bak"); } }
 
-        /// <summary>Normalize the root and locate poznamky.xml without creating files.</summary>
-        public NotesStore(string directory) { path = Path.Combine(Path.GetFullPath(directory), "poznamky.xml"); }
+        /// <summary>Prefer the English index, retaining access to older storage until migration completes.</summary>
+        private string IndexToRead
+        {
+            get
+            {
+                string legacy = Path.Combine(DirectoryPath, "poznamky.xml");
+                return !File.Exists(path) && !File.Exists(path + ".bak") && (File.Exists(legacy) || File.Exists(legacy + ".bak")) ? legacy : path;
+            }
+        }
+
+        /// <summary>Normalize the root and locate notes.xml without creating files.</summary>
+        public NotesStore(string directory) { path = Path.Combine(Path.GetFullPath(directory), "notes.xml"); }
 
         /// <summary>Load and validate the index and project texts, or return a new unsaved default model.</summary>
+        /// <param name="migrateLegacy">Rename older storage in place; disable only when copying an original legacy source.</param>
         /// <returns>Model containing loaded text; a new model must be saved first.</returns>
-        public NotesState Load()
+        public NotesState Load(bool migrateLegacy = true)
         {
             savedTexts.Clear(); savedIndex = null;
+            foreach (string suffix in new[] { "", ".bak" }) RefuseLegacyCollision(Path.Combine(DirectoryPath, "poznamky.xml" + suffix), path + suffix);
             Recovered = RecoverOperations(); recoveryChecked = !CleanupPending;
             if (!HasData)
             {
@@ -134,14 +146,15 @@ namespace ProjektovePoznamky
                 return fresh;
             }
             NotesState state;
-            try { state = ReadIndex(path); savedIndex = File.ReadAllBytes(path); }
+            string index = IndexToRead;
+            try { state = ReadIndex(index); savedIndex = File.ReadAllBytes(index); }
             catch (Exception first)
             {
                 if (!(first is IOException || first is InvalidOperationException || first is XmlException)) throw;
                 try
                 {
-                    state = ReadIndex(path + ".bak");
-                    PreserveDamaged(path);
+                    state = ReadIndex(index + ".bak");
+                    PreserveDamaged(index);
                     Recovered = true;
                 }
                 catch (Exception second)
@@ -149,14 +162,58 @@ namespace ProjektovePoznamky
                     throw new IOException(Ui.T("Cannot load the project list. The original files were preserved in:\n") + DirectoryPath, second);
                 }
             }
+            if (migrateLegacy) Recovered |= MigrateLegacyFiles(state);
             foreach (Project project in state.Projects)
                 if (!string.IsNullOrEmpty(project.Folder))
                 {
-                    string file = Path.Combine(ProjectDirectory(project), "poznamky.txt");
+                    string file = NoteToRead(ProjectDirectory(project));
                     project.Text = ReadNote(file);
                     savedTexts[file] = project.Text;
                 }
             return state;
+        }
+
+        /// <summary>Locate a current or legacy note during recovery or copying, including backup-only files.</summary>
+        private static string NoteToRead(string folder)
+        {
+            string current = Path.Combine(folder, "notes.txt"), legacy = Path.Combine(folder, "poznamky.txt");
+            return !File.Exists(current) && !File.Exists(current + ".bak") && (File.Exists(legacy) || File.Exists(legacy + ".bak")) ? legacy : current;
+        }
+
+        /// <summary>Refuse competing legacy/current paths before migration or journal recovery can alter either copy.</summary>
+        private static void RefuseLegacyCollision(string legacy, string current)
+        {
+            if ((File.Exists(legacy) || Directory.Exists(legacy)) && (File.Exists(current) || Directory.Exists(current)))
+                throw new IOException(Ui.T("Cannot migrate storage because both names exist:\n") + legacy + "\n" + current);
+        }
+
+        /// <summary>Rename legacy notes, backups, and attachment folders without replacing any existing destination.</summary>
+        /// <remarks>Recover journals first. Preflight all conflicts and path lengths; interrupted moves resume on the next Load.</remarks>
+        private bool MigrateLegacyFiles(NotesState state)
+        {
+            List<KeyValuePair<string, string>> moves = new List<KeyValuePair<string, string>>();
+            foreach (Project project in state.Projects.Where(p => !string.IsNullOrEmpty(p.Folder)))
+            {
+                string folder = ProjectDirectory(project);
+                moves.Add(new KeyValuePair<string, string>(Path.Combine(folder, "poznamky.txt"), Path.Combine(folder, "notes.txt")));
+                moves.Add(new KeyValuePair<string, string>(Path.Combine(folder, "poznamky.txt.bak"), Path.Combine(folder, "notes.txt.bak")));
+                moves.Add(new KeyValuePair<string, string>(Path.Combine(folder, "snimky"), Path.Combine(folder, "images")));
+                moves.Add(new KeyValuePair<string, string>(Path.Combine(folder, "videa"), Path.Combine(folder, "videos")));
+            }
+            moves.Add(new KeyValuePair<string, string>(Path.Combine(DirectoryPath, "poznamky.xml"), path));
+            moves.Add(new KeyValuePair<string, string>(Path.Combine(DirectoryPath, "poznamky.xml.bak"), path + ".bak"));
+            moves.RemoveAll(pair => !File.Exists(pair.Key) && !Directory.Exists(pair.Key));
+            foreach (KeyValuePair<string, string> pair in moves)
+            {
+                RefuseLegacyCollision(pair.Key, pair.Value);
+                CheckFilePath(pair.Value);
+                if (Directory.Exists(pair.Key))
+                    foreach (string child in Directory.GetFileSystemEntries(pair.Key, "*", SearchOption.AllDirectories))
+                        CheckFilePath(pair.Value + child.Substring(pair.Key.Length));
+            }
+            foreach (KeyValuePair<string, string> pair in moves)
+                if (Directory.Exists(pair.Key)) Directory.Move(pair.Key, pair.Value); else File.Move(pair.Key, pair.Value);
+            return moves.Count != 0;
         }
 
         /// <summary>Deserialize XML without DTDs/external resources, validate the model, and repair an invalid selected Id.</summary>
@@ -289,11 +346,11 @@ namespace ProjektovePoznamky
                 recoveryChecked = !CleanupPending;
             }
             AllocateFolders(state);
-            HashSet<string> activeFiles = new HashSet<string>(state.Projects.Select(p => Path.Combine(ProjectDirectory(p), "poznamky.txt")), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> activeFiles = new HashSet<string>(state.Projects.Select(p => Path.Combine(ProjectDirectory(p), "notes.txt")), StringComparer.OrdinalIgnoreCase);
             foreach (string oldFile in savedTexts.Keys.Where(file => !activeFiles.Contains(file)).ToArray()) savedTexts.Remove(oldFile);
             foreach (Project project in state.Projects)
             {
-                string file = Path.Combine(ProjectDirectory(project), "poznamky.txt");
+                string file = Path.Combine(ProjectDirectory(project), "notes.txt");
                 string saved;
                 if (!savedTexts.TryGetValue(file, out saved) || saved != project.Text)
                 {
@@ -338,7 +395,8 @@ namespace ProjektovePoznamky
                     {
                         string temporary = Path.Combine(staging, "media-" + transfers.Count);
                         File.Copy(file, temporary, false);
-                        string target = Path.Combine(ProjectDirectory(copy.Projects[i]), Path.GetDirectoryName(file).EndsWith("snimky", StringComparison.OrdinalIgnoreCase) ? "snimky" : "videa", Path.GetFileName(file));
+                        string mediaFolder = Path.GetFileName(Path.GetDirectoryName(file));
+                        string target = Path.Combine(ProjectDirectory(copy.Projects[i]), mediaFolder == "images" || mediaFolder == "snimky" ? "images" : "videos", Path.GetFileName(file));
                         transfers.Add(new KeyValuePair<string, string>(temporary, target));
                     }
                 new NotesStore(staging).Save(copy);
@@ -347,7 +405,7 @@ namespace ProjektovePoznamky
                     string target = ProjectDirectory(project);
                     Directory.Move(Path.Combine(staging, project.Folder), target);
                     owned.Add(target);
-                    savedTexts[Path.Combine(target, "poznamky.txt")] = project.Text;
+                    savedTexts[Path.Combine(target, "notes.txt")] = project.Text;
                 }
                 foreach (KeyValuePair<string, string> transfer in transfers)
                 {
@@ -363,26 +421,28 @@ namespace ProjektovePoznamky
                 if (!committed)
                     foreach (string folder in owned)
                     {
-                        savedTexts.Remove(Path.Combine(folder, "poznamky.txt"));
+                        savedTexts.Remove(Path.Combine(folder, "notes.txt"));
                         if (Directory.Exists(folder)) Directory.Delete(folder, true);
                     }
                 if (Directory.Exists(staging)) Directory.Delete(staging, true);
             }
         }
 
-        /// <summary>Return alphabetically sorted PNG files in snimky, or an empty array when absent.</summary>
+        /// <summary>Return alphabetically sorted PNG files in images, or an empty array when absent.</summary>
         public string[] ImageFiles(Project project)
         {
             if (string.IsNullOrEmpty(project.Folder)) return new string[0];
-            string directory = Path.Combine(ProjectDirectory(project), "snimky");
+            string directory = Path.Combine(ProjectDirectory(project), "images");
+            if (!Directory.Exists(directory)) directory = Path.Combine(ProjectDirectory(project), "snimky");
             return Directory.Exists(directory) ? Directory.GetFiles(directory, "*.png").OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray() : new string[0];
         }
 
-        /// <summary>Return sorted supported files in videa; codec availability is not checked here.</summary>
+        /// <summary>Return sorted supported files in videos; codec availability is not checked here.</summary>
         public string[] VideoFiles(Project project)
         {
             if (string.IsNullOrEmpty(project.Folder)) return new string[0];
-            string directory = Path.Combine(ProjectDirectory(project), "videa");
+            string directory = Path.Combine(ProjectDirectory(project), "videos");
+            if (!Directory.Exists(directory)) directory = Path.Combine(ProjectDirectory(project), "videa");
             return Directory.Exists(directory) ? Directory.GetFiles(directory).Where(VideoFormats.Supports).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray() : new string[0];
         }
 
@@ -403,7 +463,7 @@ namespace ProjektovePoznamky
                 Save(state);
                 File.Copy(path, path + ".bak", true);
                 CompleteOperation(operation);
-                savedTexts.Remove(Path.Combine(folder, "poznamky.txt"));
+                savedTexts.Remove(Path.Combine(folder, "notes.txt"));
             }
             catch
             {
@@ -531,7 +591,7 @@ namespace ProjektovePoznamky
             string directory = Path.Combine(DirectoryPath, ".operace-" + Guid.NewGuid().ToString("N"));
             try
             {
-                string before = intent.Kind == "project-delete" ? path : Path.Combine(DirectoryPath, intent.Folder, "poznamky.txt");
+                string before = intent.Kind == "project-delete" ? path : Path.Combine(DirectoryPath, intent.Folder, "notes.txt");
                 WriteAtomic(Path.Combine(directory, "pred"), File.ReadAllBytes(before));
                 using (MemoryStream buffer = new MemoryStream())
                 {
@@ -593,7 +653,7 @@ namespace ProjektovePoznamky
                 ValidateFolder(intent.Folder);
                 if (intent.Kind != "project-delete")
                 {
-                    if (intent.Media != "snimky" && intent.Media != "videa") throw new InvalidDataException(Ui.T("Invalid storage recovery record."));
+                    if (!new[] { "images", "videos", "snimky", "videa" }.Contains(intent.Media)) throw new InvalidDataException(Ui.T("Invalid storage recovery record."));
                     ValidateFolder(intent.Source);
                     if (intent.Kind == "attachment-rename") ValidateFolder(intent.Target);
                 }
@@ -619,10 +679,11 @@ namespace ProjektovePoznamky
                 string pending = Path.Combine(directory, "projekt");
                 if (Directory.Exists(pending)) Directory.Move(pending, folder);
                 if (!Directory.Exists(folder)) throw new IOException(Ui.T("Storage recovery data is missing."));
-                original = path;
+                original = IndexToRead;
             }
             else
             {
+                foreach (string suffix in new[] { "", ".bak" }) RefuseLegacyCollision(Path.Combine(folder, "poznamky.txt" + suffix), Path.Combine(folder, "notes.txt" + suffix));
                 string source = Path.Combine(folder, intent.Media, intent.Source), pending = Path.Combine(directory, "priloha");
                 if (File.Exists(pending)) File.Move(pending, source);
                 else if (intent.Kind == "attachment-rename" && (!File.Exists(source) || string.Equals(source, Path.Combine(folder, intent.Media, intent.Target), StringComparison.OrdinalIgnoreCase)))
@@ -631,7 +692,7 @@ namespace ProjektovePoznamky
                     File.Move(pending, source);
                 }
                 if (!File.Exists(source)) throw new IOException(Ui.T("Storage recovery data is missing."));
-                original = Path.Combine(folder, "poznamky.txt");
+                original = Path.Combine(folder, intent.Media == "snimky" || intent.Media == "videa" ? "poznamky.txt" : "notes.txt");
                 savedTexts.Remove(original);
             }
             WriteAtomic(original, before);
@@ -644,11 +705,11 @@ namespace ProjektovePoznamky
         /// <returns>Full path of the new PNG.</returns>
         public string SaveImage(Project project, Image image)
         {
-            string directory = Path.Combine(ProjectDirectory(project), "snimky");
+            string directory = Path.Combine(ProjectDirectory(project), "images");
             Directory.CreateDirectory(directory);
             int number = 1;
             string file;
-            do { file = Path.Combine(directory, "snimek-" + (number++).ToString("D3") + ".png"); } while (File.Exists(file));
+            do { file = Path.Combine(directory, "image-" + (number++).ToString("D3") + ".png"); } while (File.Exists(file));
             string temporary = file + ".tmp";
             try
             {
@@ -664,7 +725,7 @@ namespace ProjektovePoznamky
         public string SaveVideo(Project project, string source)
         {
             VideoFormats.Validate(source);
-            string directory = Path.Combine(ProjectDirectory(project), "videa");
+            string directory = Path.Combine(ProjectDirectory(project), "videos");
             Directory.CreateDirectory(directory);
             string extension = Path.GetExtension(source).ToLowerInvariant();
             int number = 1;

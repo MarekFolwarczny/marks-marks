@@ -10,11 +10,11 @@ using System.Xml.Serialization;
 
 namespace ProjektovePoznamky
 {
-    /// <summary>Minimal transfer ZIP metadata; format 1 contains images and format 2 supports videos.</summary>
+    /// <summary>Transfer ZIP metadata; legacy formats 1/2 and English format 3 are accepted.</summary>
     public sealed class ProjectPackage
     {
-        /// <summary>Archive format: 1 for text/images, 2 when videos are included.</summary>
-        public int Version = 1;
+        /// <summary>Archive format 3 uses English paths and supports images and videos.</summary>
+        public int Version = 3;
         /// <summary>Transferred project name; import allocates a new local Id and folder.</summary>
         public string Name;
     }
@@ -28,14 +28,14 @@ namespace ProjektovePoznamky
         private static readonly XmlSerializer Metadata = new XmlSerializer(typeof(ProjectPackage));
 
         /// <summary>Create a project archive and atomically replace the ZIP after completing all writes.</summary>
-        /// <remarks>The caller saves edits first. Use format 1 without videos and format 2 with videos; exclude preferences, local backups, and Ids.</remarks>
+        /// <remarks>The caller saves edits first. Use English format 3; exclude preferences, local backups, and Ids.</remarks>
         internal static void Export(NotesStore store, Project project, string file)
         {
             file = Path.GetFullPath(file);
             if (!string.Equals(Path.GetExtension(file), ".zip", StringComparison.OrdinalIgnoreCase))
                 throw new IOException(Ui.T("The archive must have a .zip extension."));
             string folder = store.ProjectDirectory(project) + Path.DirectorySeparatorChar;
-            if (file.StartsWith(folder, StringComparison.OrdinalIgnoreCase) || string.Equals(file, Path.Combine(store.DirectoryPath, "poznamky.xml"), StringComparison.OrdinalIgnoreCase))
+            if (file.StartsWith(folder, StringComparison.OrdinalIgnoreCase) || string.Equals(file, Path.Combine(store.DirectoryPath, "notes.xml"), StringComparison.OrdinalIgnoreCase))
                 throw new IOException(Ui.T("Save the archive outside the exported project's folder."));
             string[] images = store.ImageFiles(project);
             string[] videos = store.VideoFiles(project);
@@ -49,16 +49,16 @@ namespace ProjektovePoznamky
                 {
                     using (ZipArchive archive = new ZipArchive(output, ZipArchiveMode.Create, true, Utf8))
                     {
-                        using (Stream stream = archive.CreateEntry("projekt.xml").Open())
+                        using (Stream stream = archive.CreateEntry("project.xml").Open())
                         using (XmlWriter writer = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = Utf8 }))
-                            Metadata.Serialize(writer, new ProjectPackage { Name = project.Name, Version = videos.Length == 0 ? 1 : 2 });
-                        using (Stream stream = archive.CreateEntry("poznamky.txt").Open()) stream.Write(note, 0, note.Length);
+                            Metadata.Serialize(writer, new ProjectPackage { Name = project.Name });
+                        using (Stream stream = archive.CreateEntry("notes.txt").Open()) stream.Write(note, 0, note.Length);
                         foreach (string image in images)
                             using (Stream input = File.OpenRead(image))
-                            using (Stream stream = archive.CreateEntry("snimky/" + Path.GetFileName(image), CompressionLevel.Optimal).Open()) input.CopyTo(stream);
+                            using (Stream stream = archive.CreateEntry("images/" + Path.GetFileName(image), CompressionLevel.Optimal).Open()) input.CopyTo(stream);
                         foreach (string video in videos)
                             using (Stream input = File.OpenRead(video))
-                            using (Stream stream = archive.CreateEntry("videa/" + Path.GetFileName(video), CompressionLevel.NoCompression).Open()) input.CopyTo(stream);
+                            using (Stream stream = archive.CreateEntry("videos/" + Path.GetFileName(video), CompressionLevel.NoCompression).Open()) input.CopyTo(stream);
                     }
                     output.Flush(true);
                 }
@@ -84,6 +84,9 @@ namespace ProjektovePoznamky
                 using (FileStream input = File.OpenRead(file))
                 using (ZipArchive archive = new ZipArchive(input, ZipArchiveMode.Read, false, Utf8))
                 {
+                    bool legacy = archive.GetEntry("projekt.xml") != null;
+                    string metadataName = legacy ? "projekt.xml" : "project.xml", noteName = legacy ? "poznamky.txt" : "notes.txt";
+                    string imagePrefix = legacy ? "snimky/" : "images/", videoPrefix = legacy ? "videa/" : "videos/";
                     HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     long size = 0;
                     int images = 0;
@@ -93,44 +96,45 @@ namespace ProjektovePoznamky
                     {
                         string name = entry.FullName;
                         if (!paths.Add(name)) throw new InvalidDataException(Ui.T("The archive contains a duplicate path: ") + name);
-                        bool image = name.StartsWith("snimky/", StringComparison.Ordinal) && name.Length > 7;
-                        bool video = name.StartsWith("videa/", StringComparison.Ordinal) && name.Length > 6;
+                        bool image = name.StartsWith(imagePrefix, StringComparison.Ordinal) && name.Length > imagePrefix.Length;
+                        bool video = name.StartsWith(videoPrefix, StringComparison.Ordinal) && name.Length > videoPrefix.Length;
                         if (image && ++images > 10000) throw new InvalidDataException(Ui.T("The archive contains too many images."));
                         if (video && ++videos > 1000) throw new InvalidDataException(Ui.T("The archive contains too many videos."));
-                        if ((name == "snimky/" || name == "videa/") && entry.Length != 0) throw new InvalidDataException(Ui.T("Invalid folder entry in the archive."));
-                        string leaf = image ? name.Substring(7) : video ? name.Substring(6) : name;
+                        if ((name == imagePrefix || name == videoPrefix) && entry.Length != 0) throw new InvalidDataException(Ui.T("Invalid folder entry in the archive."));
+                        string leaf = image ? name.Substring(imagePrefix.Length) : video ? name.Substring(videoPrefix.Length) : name;
                         if (image || video) longestAttachment = Math.Max(longestAttachment, leaf.Length);
-                        if (name != "projekt.xml" && name != "poznamky.txt" && name != "snimky/" && name != "videa/" &&
+                        if (name != metadataName && name != noteName && name != imagePrefix && name != videoPrefix &&
                             ((!image && !video) || !ValidLeaf(leaf) || (image && !leaf.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) || (video && !VideoFormats.Supports(leaf))))
                             throw new InvalidDataException(Ui.T("Disallowed path in the archive: ") + name);
                         size = checked(size + entry.Length);
                         if (size > MaxBytes) throw new InvalidDataException(Ui.T("The unpacked project exceeds 1 GiB."));
                     }
-                    ZipArchiveEntry metadata = archive.GetEntry("projekt.xml"), note = archive.GetEntry("poznamky.txt");
+                    ZipArchiveEntry metadata = archive.GetEntry(metadataName), note = archive.GetEntry(noteName);
                     if (metadata == null || note == null || metadata.Length > 65536 || note.Length > MaxNoteBytes)
                         throw new InvalidDataException(Ui.T("The archive is not a valid Mark´s Marks project."));
                     ProjectPackage package;
                     using (Stream stream = metadata.Open())
                     using (XmlReader reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 65536 }))
                         package = (ProjectPackage)Metadata.Deserialize(reader);
-                    if (package == null || (package.Version != 1 && package.Version != 2) || (package.Version == 1 && videos != 0) || string.IsNullOrWhiteSpace(package.Name) || package.Name.Length > 1024)
+                    if (package == null || (legacy ? (package.Version != 1 && package.Version != 2) || (package.Version == 1 && videos != 0) : package.Version != 3) || string.IsNullOrWhiteSpace(package.Name) || package.Name.Length > 1024)
                         throw new InvalidDataException(Ui.T("Unsupported version or invalid project name."));
                     Directory.CreateDirectory(staging);
                     foreach (ZipArchiveEntry entry in archive.Entries)
                     {
-                        if (entry.FullName == "projekt.xml" || entry.FullName == "snimky/" || entry.FullName == "videa/") continue;
+                        if (entry.FullName == metadataName || entry.FullName == imagePrefix || entry.FullName == videoPrefix) continue;
                         // Short staging names must not increase the original attachment's path length.
-                        string temporaryName = entry.FullName == "poznamky.txt" ? "poznamky.txt" : "media-" + extracted.Count + Path.GetExtension(entry.FullName);
+                        string temporaryName = entry.FullName == noteName ? "notes.txt" : "media-" + extracted.Count + Path.GetExtension(entry.FullName);
                         string target = Path.Combine(staging, temporaryName);
-                        extracted.Add(entry.FullName, temporaryName);
+                        string canonical = entry.FullName == noteName ? "notes.txt" : (entry.FullName.StartsWith(imagePrefix, StringComparison.Ordinal) ? "images/" + entry.FullName.Substring(imagePrefix.Length) : "videos/" + entry.FullName.Substring(videoPrefix.Length));
+                        extracted.Add(canonical, temporaryName);
                         Directory.CreateDirectory(Path.GetDirectoryName(target));
                         using (Stream stream = entry.Open())
                         using (FileStream output = new FileStream(target, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                             CopyLimited(stream, output, entry.Length);
-                        if (entry.FullName.StartsWith("snimky/")) ValidateImage(target);
-                        if (entry.FullName.StartsWith("videa/")) VideoFormats.Validate(target, entry.FullName);
+                        if (entry.FullName.StartsWith(imagePrefix, StringComparison.Ordinal)) ValidateImage(target);
+                        if (entry.FullName.StartsWith(videoPrefix, StringComparison.Ordinal)) VideoFormats.Validate(target, entry.FullName);
                     }
-                    byte[] text = File.ReadAllBytes(Path.Combine(staging, "poznamky.txt"));
+                    byte[] text = File.ReadAllBytes(Path.Combine(staging, "notes.txt"));
                     int start = text.Length >= 3 && text[0] == 0xef && text[1] == 0xbb && text[2] == 0xbf ? 3 : 0;
                     project = new Project { Name = package.Name.Trim(), Text = Utf8.GetString(text, start, text.Length - start) };
                 }
@@ -144,7 +148,7 @@ namespace ProjektovePoznamky
                 Directory.Move(staging, destination);
                 ownsDestination = true;
                 foreach (KeyValuePair<string, string> pair in extracted)
-                    if (pair.Key != "poznamky.txt")
+                    if (pair.Key != "notes.txt")
                     {
                         string target = Path.Combine(destination, pair.Key.Replace('/', Path.DirectorySeparatorChar));
                         Directory.CreateDirectory(Path.GetDirectoryName(target));

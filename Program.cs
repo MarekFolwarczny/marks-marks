@@ -14,7 +14,7 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Mark´s Marks")]
 [assembly: System.Reflection.AssemblyProduct("Mark´s Marks")]
 [assembly: System.Reflection.AssemblyCopyright("Copyright (c) 2026 Marek Folwarczny")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
 
 namespace ProjektovePoznamky
 {
@@ -112,7 +112,7 @@ namespace ProjektovePoznamky
             else
             {
                 NotesStore legacy = legacyDirectory == null ? null : new NotesStore(legacyDirectory);
-                if (legacy != null && legacy.HasData) state = store.CopyFrom(legacy, legacy.Load());
+                if (legacy != null && legacy.HasData) state = store.CopyFrom(legacy, legacy.Load(false));
                 else { state = store.Load(); store.Save(state); }
             }
             return store;

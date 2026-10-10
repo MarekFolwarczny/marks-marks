@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 — English storage filenames
+
+- Use `notes.xml`, `notes.txt`, `images`, and `videos` in local storage.
+- Upgrade older storage safely, preserving notes, attachments, references, and backups.
+- Resume interrupted renames and refuse destination conflicts without overwriting data.
+- Export English archive format 3 and continue importing legacy formats 1 and 2.
+- Use `image-001.png` naming for newly pasted images.
+- Update the README, developer documentation, screenshot, and application title.
+
 ## 1.0.0 — Initial public release
 
 - Text notes with automatic saving, separate folders, search, and alphabetical ordering.

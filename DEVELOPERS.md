@@ -19,8 +19,8 @@ graphics, and produces `MarksMarks.exe` and `MarksMarks.xml`. XML documentation 
 for development; the EXE runs independently. Keep C# sources in UTF-8 and PowerShell
 scripts in UTF-8 with a BOM for Windows PowerShell 5.1.
 
-The assembly version is `1.0.0.0`. `Program.WindowTitle` derives the visible
-`Mark´s Marks v1.0.0` caption from it. Instance activation uses the same caption;
+The assembly version is `1.0.1.0`. `Program.WindowTitle` derives the visible
+`Mark´s Marks v1.0.1` caption from it. Instance activation uses the same caption;
 change the assembly version when preparing another release.
 
 ## Responsibilities
@@ -45,12 +45,17 @@ change the assembly version when preparing another release.
 `NotesState` owns projects, the selected Id, and overlay visibility/coordinates.
 Each `Project` has a GUID Id, user Name, stable Folder component, and in-memory Text.
 `ShouldSerializeText` reads legacy inline XML text while new indices exclude it.
-Notes are stored as UTF-8 in each project's `poznamky.txt`.
+Notes are stored as UTF-8 in each note folder's `notes.txt`.
 
-The existing on-disk names (`poznamky.xml`, `snimky`, `videa`) and preference directory
-(`%LOCALAPPDATA%\ProjektovePoznamky`) are compatibility identifiers. Do not rename
-those paths during a documentation or localization change. Renaming a project
-changes its display name, keeping the existing folder stable.
+The index is `notes.xml`, with attachment directories `images` and `videos`.
+Load recovers pending journals before migrating legacy filenames. Migration
+preflights destination collisions and path lengths, then renames files and
+directories without replacement; interrupted moves resume on the next Load.
+Notes, references, attachment names, and independent backups remain unchanged.
+When copying an original legacy source, Load(false) retains its layout and CopyFrom
+creates English paths at the destination. The preference directory remains
+`%LOCALAPPDATA%\ProjektovePoznamky` so existing settings continue to work.
+Renaming a note group changes its display name while keeping its folder stable.
 
 New folder components use at most 64 characters and can be shortened further to
 reserve space for attachments, backups, and journal paths. Names remain unique
@@ -114,8 +119,11 @@ Rename callbacks update exact image references in both languages and Video refer
 User text, filenames, and project names are never translation keys. Files must belong
 to the selected project's validated media folder before modification.
 
-ZIP format **1** transfers text/images; format **2** adds videos. These are archive
-format numbers, independent of the application release number. Export excludes local
+ZIP format **3** uses `project.xml`, `notes.txt`, `images/`, and `videos/`.
+Import also accepts legacy format **1** (text/images) and **2** (images/videos),
+normalizing their paths before committing them to English storage. Mixed layouts
+and mismatched format versions are rejected. These are archive format numbers,
+independent of the application release number. Export excludes local
 preferences, Ids, and backups. Import allocates a fresh project, preserves attachment
 names, and does not replace existing projects.
 

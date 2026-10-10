@@ -20,6 +20,7 @@ namespace ProjektovePoznamky
         static Ui() { Language = "en"; }
         private static readonly Dictionary<string, string> CzechText = new Dictionary<string, string>
         {
+            { "Cannot migrate storage because both names exist:\n", "Úložiště nelze převést, protože existují oba názvy:\n" },
             { "Czech", "Čeština" },
             { "Delete project including its note, images and videos", "Smazat projekt včetně poznámky, snímků a videí" },
             { "Export project including images and videos to ZIP", "Exportovat projekt včetně snímků a videí do ZIPu" },

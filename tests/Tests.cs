@@ -127,7 +127,7 @@ internal static partial class Tests
         Application.DoEvents(); return done();
     }
 
-    /// <summary>Verify attachment insertion, persistence, deletion, ZIP format 2, native playback, and recovery.</summary>
+    /// <summary>Verify attachment insertion, persistence, deletion, ZIP format 3, native playback, and recovery.</summary>
     private static void TestVideos(string directory)
     {
         Directory.CreateDirectory(directory); Ui.SetLanguage("en");
@@ -142,7 +142,7 @@ internal static partial class Tests
             form.Show(); Application.DoEvents();
             form.Editor.Text = "- Video here: \r\n- Another point"; form.Editor.SelectionStart = 14;
             first = form.AttachVideo(original);
-            Check(File.Exists(original) && File.ReadAllBytes(first).SequenceEqual(File.ReadAllBytes(original)) && Path.GetDirectoryName(first).EndsWith("videa"),
+            Check(File.Exists(original) && File.ReadAllBytes(first).SequenceEqual(File.ReadAllBytes(original)) && Path.GetDirectoryName(first).EndsWith("videos"),
                 "Adding a video copies its exact bytes into the project and retains the source file");
             Check(form.Editor.Text == "- Video here: [Video: video-001.avi]\r\n- Another point", "Video insertion associates the file with the point at the caret");
             form.ReadClipboardFiles = delegate { return new[] { original, original }; };
@@ -172,14 +172,14 @@ internal static partial class Tests
         }
         string package = Path.Combine(directory, "team.zip");
         using (ZipArchive zip = ZipFile.OpenRead(package))
-        using (StreamReader metadata = new StreamReader(zip.GetEntry("projekt.xml").Open()))
-            Check(metadata.ReadToEnd().Contains("<Version>2</Version>") && zip.GetEntry("videa/video-003.avi") != null, "Video archives use package version 2 and include all video files");
+        using (StreamReader metadata = new StreamReader(zip.GetEntry("project.xml").Open()))
+            Check(metadata.ReadToEnd().Contains("<Version>3</Version>") && zip.GetEntry("videos/video-003.avi") != null, "English video archives use package version 3 and include all video files");
         NotesStore target = new NotesStore(Path.Combine(directory, "target")); NotesState received = target.Load();
         Project imported = ProjectArchive.Import(target, received, package);
         Check(imported.Text == project.Text && target.VideoFiles(imported).Length == 3 && target.ImageFiles(imported).Length == 1
             && File.ReadAllBytes(target.VideoFiles(imported)[0]).SequenceEqual(File.ReadAllBytes(first)), "ZIP transfer preserves notes, image attachments and original video bytes");
         string invalid = Path.Combine(directory, "bad.zip");
-        foreach (string path in new[] { "videa/../../escape.avi", "videa/NUL.avi", "videa/clip.exe", "videa/clip.avi", "videa/VIDEO-001.AVI" })
+        foreach (string path in new[] { "videos/../../escape.avi", "videos/NUL.avi", "videos/clip.exe", "videos/clip.avi", "videos/VIDEO-001.AVI" })
         {
             File.Copy(package, invalid, true);
             using (ZipArchive zip = ZipFile.Open(invalid, ZipArchiveMode.Update))
@@ -190,12 +190,12 @@ internal static partial class Tests
         File.Copy(package, invalid, true);
         using (ZipArchive zip = ZipFile.Open(invalid, ZipArchiveMode.Update))
         {
-            string text; using (StreamReader reader = new StreamReader(zip.GetEntry("projekt.xml").Open())) text = reader.ReadToEnd();
-            zip.GetEntry("projekt.xml").Delete(); using (StreamWriter writer = new StreamWriter(zip.CreateEntry("projekt.xml").Open())) writer.Write(text.Replace("<Version>2</Version>", "<Version>1</Version>"));
+            string text; using (StreamReader reader = new StreamReader(zip.GetEntry("project.xml").Open())) text = reader.ReadToEnd();
+            zip.GetEntry("project.xml").Delete(); using (StreamWriter writer = new StreamWriter(zip.CreateEntry("project.xml").Open())) writer.Write(text.Replace("<Version>3</Version>", "<Version>1</Version>"));
         }
         Check(RefusesImport(target, received, invalid), "An archive containing video cannot pretend to be the older image-only format");
         bool failed = false; int count = received.Projects.Count;
-        using (FileStream locked = new FileStream(Path.Combine(target.DirectoryPath, "poznamky.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (FileStream locked = new FileStream(Path.Combine(target.DirectoryPath, "notes.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
             try { ProjectArchive.Import(target, received, package); } catch (IOException) { failed = true; }
         Check(failed && received.Projects.Count == count && Directory.GetDirectories(target.DirectoryPath).Length == count, "A failed video import commit removes all imported files and retains existing projects");
         NotesStore moved = new NotesStore(Path.Combine(directory, "moved")); NotesState movedState = moved.CopyFrom(store, state);
@@ -294,7 +294,7 @@ internal static partial class Tests
                     "The attachment dialog translates its title and field, preserves the custom name, and supports cancel");
             }
             string note = project.Text; bool failed = false;
-            using (FileStream locked = new FileStream(Path.Combine(store.ProjectDirectory(project), "poznamky.txt"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (FileStream locked = new FileStream(Path.Combine(store.ProjectDirectory(project), "notes.txt"), FileMode.Open, FileAccess.Read, FileShare.Read))
                 try { form.RenameAttachment(renamed, "Blocked note", false); } catch (IOException) { failed = true; }
             Check(failed && File.Exists(renamed) && project.Text == note && store.Load().Projects[0].Text == note && !File.Exists(Path.Combine(Path.GetDirectoryName(renamed), "Blocked note.png")),
                 "A failed note commit rolls back the attachment filename and every note marker");
@@ -501,26 +501,26 @@ internal static partial class Tests
         state.OverlayVisible = false;
         store.Save(state);
         NotesState loaded = store.Load();
-        string firstFile = Path.Combine(store.ProjectDirectory(state.Projects[0]), "poznamky.txt");
+        string firstFile = Path.Combine(store.ProjectDirectory(state.Projects[0]), "notes.txt");
         Check(File.ReadAllText(firstFile) == originalText && loaded.Projects[0].Text == originalText, "UTF-8 text files preserve Unicode, newlines and tabs exactly");
         Check(loaded.Projects[1].Text.Length == 100000, "Long notes are not truncated");
-        Check(state.Projects[0].Folder != second.Folder && File.Exists(Path.Combine(store.ProjectDirectory(second), "poznamky.txt")), "Each project gets its own folder and note file");
-        Check(!File.ReadAllText(Path.Combine(directory, "poznamky.xml")).Contains("<Text>"), "The project index contains no duplicate note body");
+        Check(state.Projects[0].Folder != second.Folder && File.Exists(Path.Combine(store.ProjectDirectory(second), "notes.txt")), "Each project gets its own folder and note file");
+        Check(!File.ReadAllText(Path.Combine(directory, "notes.xml")).Contains("<Text>"), "The project index contains no duplicate note body");
         Check(loaded.SelectedId == second.Id && loaded.OverlayX == -1500 && !loaded.OverlayVisible, "Selection and overlay settings round-trip");
         state.Projects[0].Text = "Novější text";
         state.OverlayY++;
         store.Save(state);
         Check(store.Load().Projects[0].Text == "Novější text", "Changed notes are atomically saved");
-        Check(File.ReadAllText(firstFile + ".bak") == originalText && File.Exists(Path.Combine(directory, "poznamky.xml.bak")), "Text and project metadata have independent backups");
+        Check(File.ReadAllText(firstFile + ".bak") == originalText && File.Exists(Path.Combine(directory, "notes.xml.bak")), "Text and project metadata have independent backups");
         store.Save(state);
         Check(File.ReadAllText(firstFile + ".bak") == originalText, "An unchanged save keeps the meaningful previous text backup");
 
-        string index = Path.Combine(directory, "poznamky.xml");
+        string index = Path.Combine(directory, "notes.xml");
         File.WriteAllText(index, "broken xml");
         NotesStore recovery = new NotesStore(directory);
         NotesState restored = recovery.Load();
         Check(recovery.Recovered && restored.Projects[0].Text == "Novější text", "A damaged index recovers while retaining the latest project text");
-        Check(Directory.GetFiles(directory, "poznamky.xml.poskozene-*").Length == 1, "The damaged index is preserved");
+        Check(Directory.GetFiles(directory, "notes.xml.poskozene-*").Length == 1, "The damaged index is preserved");
         recovery.Save(restored);
         File.WriteAllBytes(firstFile, new byte[] { 0xff, 0xff });
         bool refused = false;
@@ -613,7 +613,7 @@ internal static partial class Tests
             form.ErrorReported = delegate(string message) { throw new Exception(message); };
             form.Show();
             Application.DoEvents();
-            Check(form.Text == "Mark´s Marks v1.0.0" && form.Icon != null, "The title bar shows the application name and version with the branded executable icon");
+            Check(form.Text == "Mark´s Marks v1.0.1" && form.Icon != null, "The title bar shows the application name and version with the branded executable icon");
             form.Editor.Text = "První projekt: vlastní poznámka.";
             Project second = form.AddProject("Webové stránky");
             Check(form.Editor.Text == "" && form.State.Projects[0].Text.Contains("První projekt"), "A new project retains the previous project's note");
@@ -649,7 +649,7 @@ internal static partial class Tests
             }
             string[] images = store.ImageFiles(second);
             Check(images.Length == 2 && images[0] != images[1], "The native paste command saves multiple images without replacing earlier images");
-            Check(form.Editor.Text.Contains("[Snímek: snimek-001.png]") && form.Editor.Text.Contains("[Snímek: snimek-002.png]"), "Pasted images are linked at the caret to the matching note points");
+            Check(form.Editor.Text.Contains("[Snímek: image-001.png]") && form.Editor.Text.Contains("[Snímek: image-002.png]"), "Pasted images are linked at the caret to the matching note points");
             using (Bitmap image = new Bitmap(images[0]))
                 Check(image.Width == 120 && image.Height == 80 && image.GetPixel(5, 5).ToArgb() == Color.DarkCyan.ToArgb(), "Saved PNG images retain their dimensions and pixels");
             Check(form.Pictures.Controls.Count == 2 && ((Button)form.Pictures.Controls[0]).Image != null, "Saved images are displayed as thumbnails inside the app");
@@ -658,7 +658,7 @@ internal static partial class Tests
             {
                 closeViewer.Tick += delegate
                 {
-                    Form viewer = Application.OpenForms.Cast<Form>().FirstOrDefault(f => f.Text == "snimek-001.png");
+                    Form viewer = Application.OpenForms.Cast<Form>().FirstOrDefault(f => f.Text == "image-001.png");
                     if (viewer == null) return;
                     ZoomCanvas picture = ((ImageViewer)viewer).Canvas;
                     viewed = picture.Image.Width == 120 && picture.Image.Height == 80 && picture.Zoom > 0;
@@ -834,7 +834,7 @@ internal static partial class Tests
             Check(!form.NoteScroll.Visible && !form.ProjectScroll.Visible, "Scrollbars disappear again when the content fits");
 
             form.Flush();
-            using (FileStream locked = new FileStream(Path.Combine(store.ProjectDirectory(state.Projects[1]), "poznamky.txt"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (FileStream locked = new FileStream(Path.Combine(store.ProjectDirectory(state.Projects[1]), "notes.txt"), FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 form.Editor.AppendText(" – neuložená změna");
                 bool saved = form.Flush();
@@ -897,12 +897,12 @@ internal static partial class Tests
             string projectFolder = store.ProjectDirectory(yellow);
             form.Flush();
             refused = false;
-            using (FileStream locked = new FileStream(Path.Combine(directory, "poznamky.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (FileStream locked = new FileStream(Path.Combine(directory, "notes.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
                 try { form.DeleteProject(yellow); } catch (IOException) { refused = true; }
             Check(refused && state.Projects.Contains(yellow) && Directory.Exists(projectFolder) && File.Exists(second) && Directory.GetDirectories(directory, ".mazani-*").Length == 0,
                 "A failed deletion commit restores the project folder, images and selection");
             Check(form.DeleteProject(yellow) && !Directory.Exists(projectFolder) && !store.Load().Projects.Any(p => p.Id == yellow.Id), "Deleting a project removes its folder, notes, images and index entry");
-            File.WriteAllText(Path.Combine(directory, "poznamky.xml"), "damaged");
+            File.WriteAllText(Path.Combine(directory, "notes.xml"), "damaged");
             Check(new NotesStore(directory).Load().Projects.Count == 5, "The recovery index never references a deleted project's folder");
             while (state.Projects.Count != 0) form.DeleteProject(state.Projects[0]);
             Check(store.Load().Projects.Count == 0 && form.Projects.Items.Count == 0 && !form.Editor.Enabled && form.Pictures.Controls.Count == 0, "Deleting the final project leaves a persistent empty project list");
@@ -916,7 +916,7 @@ internal static partial class Tests
     private static void TestViewer(string directory, string preview)
     {
         Directory.CreateDirectory(directory);
-        string first = Path.Combine(directory, "snimek-001.png"), second = Path.Combine(directory, "snimek-002.png");
+        string first = Path.Combine(directory, "image-001.png"), second = Path.Combine(directory, "image-002.png");
         using (Bitmap bitmap = new Bitmap(1600, 1200))
         {
             using (Graphics graphics = Graphics.FromImage(bitmap))
@@ -1000,7 +1000,7 @@ internal static partial class Tests
         catch (System.Text.DecoderFallbackException) { return true; }
     }
 
-    /// <summary>Verify ZIP format 1, exact data transfer, naming conflicts, traversal, XML entities, limits, and rollback.</summary>
+    /// <summary>Verify ZIP format 3, exact data transfer, naming conflicts, traversal, XML entities, limits, and rollback.</summary>
     private static void TestArchive(string directory)
     {
         Directory.CreateDirectory(directory);
@@ -1014,18 +1014,18 @@ internal static partial class Tests
             using (Graphics graphics = Graphics.FromImage(bitmap)) graphics.Clear(Color.DarkCyan);
             source.SaveImage(project, bitmap); source.SaveImage(project, bitmap);
         }
-        project.Text = "Žluťoučký kůň 📝\r\n\t- Návrh: [Snímek: snimek-001.png]\r\n- Druhý: [Snímek: snimek-002.png]";
+        project.Text = "Žluťoučký kůň 📝\r\n\t- Návrh: [Snímek: image-001.png]\r\n- Druhý: [Snímek: image-002.png]";
         source.Save(state);
         string package = Path.Combine(directory, "tym.zip");
         ProjectArchive.Export(source, project, package);
         using (ZipArchive zip = ZipFile.OpenRead(package))
-            Check(zip.Entries.Count == 4 && zip.GetEntry("projekt.xml") != null && zip.GetEntry("poznamky.txt") != null && zip.GetEntry("snimky/snimek-002.png") != null,
+            Check(zip.Entries.Count == 4 && zip.GetEntry("project.xml") != null && zip.GetEntry("notes.txt") != null && zip.GetEntry("images/image-002.png") != null,
                 "Export contains one project with its name, plain text and every PNG image");
         NotesStore target = new NotesStore(Path.Combine(directory, "target"));
         NotesState existing = target.Load();
         existing.Projects[0].Text = "Moje původní data";
         target.Save(existing);
-        byte[] originalIndex = File.ReadAllBytes(Path.Combine(target.DirectoryPath, "poznamky.xml"));
+        byte[] originalIndex = File.ReadAllBytes(Path.Combine(target.DirectoryPath, "notes.xml"));
         Project imported = ProjectArchive.Import(target, existing, package);
         Check(imported.Name == project.Name && imported.Id != project.Id && imported.Text == project.Text && target.Load().Projects.Count == 2,
             "Import preserves Unicode, exact newlines and image markers while creating an independent project");
@@ -1044,32 +1044,32 @@ internal static partial class Tests
         Check(refused && source.Load().Projects[0].Text == project.Text, "Export cannot overwrite a file inside the source project's folder");
 
         int count = existing.Projects.Count;
-        byte[] beforeIndex = File.ReadAllBytes(Path.Combine(target.DirectoryPath, "poznamky.xml"));
+        byte[] beforeIndex = File.ReadAllBytes(Path.Combine(target.DirectoryPath, "notes.xml"));
         string bad = Path.Combine(directory, "bad.zip");
         File.Copy(package, bad);
         using (ZipArchive zip = ZipFile.Open(bad, ZipArchiveMode.Update))
-        using (Stream stream = zip.CreateEntry("snimky/../../outside.png").Open()) stream.WriteByte(1);
+        using (Stream stream = zip.CreateEntry("images/../../outside.png").Open()) stream.WriteByte(1);
         Check(RefusesImport(target, existing, bad) && existing.Projects.Count == count && !File.Exists(Path.Combine(directory, "outside.png")), "Import rejects traversal paths before creating any project");
         File.Copy(package, bad, true);
         using (ZipArchive zip = ZipFile.Open(bad, ZipArchiveMode.Update))
-            zip.GetEntry("poznamky.txt").Delete();
+            zip.GetEntry("notes.txt").Delete();
         Check(RefusesImport(target, existing, bad), "Import rejects an archive missing its note");
         File.Copy(package, bad, true);
         using (ZipArchive zip = ZipFile.Open(bad, ZipArchiveMode.Update))
         {
-            zip.GetEntry("snimky/snimek-001.png").Delete();
-            using (Stream stream = zip.CreateEntry("snimky/snimek-001.png").Open()) stream.WriteByte(1);
+            zip.GetEntry("images/image-001.png").Delete();
+            using (Stream stream = zip.CreateEntry("images/image-001.png").Open()) stream.WriteByte(1);
         }
         Check(RefusesImport(target, existing, bad), "Import rejects a damaged image and cleans up its partially extracted files");
         File.Copy(package, bad, true);
         using (ZipArchive zip = ZipFile.Open(bad, ZipArchiveMode.Update))
-        using (Stream stream = zip.CreateEntry("snimky/SNIMEK-001.PNG").Open()) stream.WriteByte(1);
+        using (Stream stream = zip.CreateEntry("images/IMAGE-001.PNG").Open()) stream.WriteByte(1);
         Check(RefusesImport(target, existing, bad), "Import rejects duplicate paths regardless of filename case");
         File.Copy(package, bad, true);
         using (ZipArchive zip = ZipFile.Open(bad, ZipArchiveMode.Update))
         {
-            zip.GetEntry("projekt.xml").Delete();
-            using (StreamWriter writer = new StreamWriter(zip.CreateEntry("projekt.xml").Open()))
+            zip.GetEntry("project.xml").Delete();
+            using (StreamWriter writer = new StreamWriter(zip.CreateEntry("project.xml").Open()))
                 writer.Write("<!DOCTYPE ProjectPackage [<!ENTITY file SYSTEM 'file:///C:/Windows/win.ini'>]><ProjectPackage><Version>1</Version><Name>&file;</Name></ProjectPackage>");
         }
         Check(RefusesImport(target, existing, bad), "Import refuses external XML entities");
@@ -1082,9 +1082,9 @@ internal static partial class Tests
         File.WriteAllBytes(bad, bytes);
         Check(RefusesImport(target, existing, bad), "Import rejects oversized unpacked data before extraction");
         refused = false;
-        using (FileStream locked = new FileStream(Path.Combine(target.DirectoryPath, "poznamky.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (FileStream locked = new FileStream(Path.Combine(target.DirectoryPath, "notes.xml"), FileMode.Open, FileAccess.Read, FileShare.Read))
             try { ProjectArchive.Import(target, existing, package); } catch (IOException) { refused = true; }
-        Check(refused && existing.Projects.Count == count && File.ReadAllBytes(Path.Combine(target.DirectoryPath, "poznamky.xml")).SequenceEqual(beforeIndex)
+        Check(refused && existing.Projects.Count == count && File.ReadAllBytes(Path.Combine(target.DirectoryPath, "notes.xml")).SequenceEqual(beforeIndex)
             && Directory.GetDirectories(target.DirectoryPath, ".import-*").Length == 0 && Directory.GetDirectories(target.DirectoryPath).Length == count,
             "A failed import commit leaves the index and existing projects intact with no imported or temporary folder");
         using (MainForm form = new MainForm(target, target.Load(), delegate { }))

@@ -5,9 +5,9 @@ screenshots, and videos.** It works offline, saves notes to local
 folders, and stays within reach through a floating logo, system tray icon,
 or the Ctrl+Alt+N keyboard shortcut. No account or installer is required.
 
-**[Download version 1.0.0 for Windows](https://github.com/MarekFolwarczny/marks-marks/releases/tag/v1.0.0)**
+**[Download version 1.0.1 for Windows](https://github.com/MarekFolwarczny/marks-marks/releases/tag/v1.0.1)**
 
-![Mark´s Marks v1.0.0 showing English notes, two saved images, and a video attachment](assets/screenshot.png)
+![Mark´s Marks v1.0.1 showing English notes, two saved images, and a video attachment](assets/screenshot.png)
 
 *Example notes and attachments shown in the English interface.*
 
@@ -35,9 +35,9 @@ The editor focuses on plain text, simple sub-bullets, images, and videos. It
 suits anyone looking for a simple desktop notepad with attachments and quick
 access while using other Windows programs.
 
-## Version 1.0.0
+## Version 1.0.1
 
-The title bar displays **Mark´s Marks v1.0.0**. English is the default language;
+The title bar displays **Mark´s Marks v1.0.1**. English is the default language;
 Czech is available through the EN / CZ button or the tray menu.
 
 ## Features
@@ -104,22 +104,31 @@ note, images, and videos. On another computer, use **Import project…**. Import
 creates an independent note group and resolves naming conflicts without replacing
 existing projects. User preferences are not included.
 
+Version 1.0.1 exports archives with English filenames and imports archives from
+version 1.0.0 as well. To receive a new archive, use version 1.0.1 or later.
+
 ZIP files transfer copies; they do not synchronize edits between computers. Use one running application per storage folder.
 
 ## Storage and backups
 
-Storage uses these filenames for compatibility:
+Storage uses English filenames:
 
 ```text
 storage/
-  poznamky.xml
-  poznamky.xml.bak
-  project-folder/
-    poznamky.txt
-    poznamky.txt.bak
-    snimky/*.png
-    videa/*
+  notes.xml
+  notes.xml.bak
+  note-folder/
+    notes.txt
+    notes.txt.bak
+    images/*.png
+    videos/*
 ```
+
+Older storage folders are upgraded automatically when opened. The application
+renames the legacy files and attachment directories while preserving note text,
+attachment filenames, references, and backups. Interrupted renames resume on the
+next launch. If both old and new names exist, it reports a conflict and keeps
+both copies.
 
 Display names and notes support Unicode. Folder names are shortened when necessary
 to stay within Windows path limits; changing a display name keeps its folder stable.
@@ -137,7 +146,7 @@ The application keeps the previous committed version of individual files. It can
 recover interrupted attachment/project changes when it next opens the storage.
 If a committed deletion is temporarily locked, the status says **Saved; file
 cleanup pending**, and work can continue. Another save, Ctrl+S, or restart retries
-cleanup. Do not manually remove `.operace-*` recovery folders.
+cleanup. Do not manually remove internal recovery folders.
 
 For an independent backup, exit the application and copy the complete storage
 folder. Close the application before renaming storage files or editing notes with
